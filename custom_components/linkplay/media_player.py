@@ -49,8 +49,6 @@ from homeassistant.components.media_player.browse_media import (
 
 from homeassistant.components.media_player.const import (
     ATTR_GROUP_MEMBERS,
-    ATTR_MEDIA_CONTENT_ID,
-    ATTR_MEDIA_ANNOUNCE,
     MEDIA_TYPE_MUSIC,
     MEDIA_TYPE_URL,
     MEDIA_TYPE_TRACK,
@@ -99,19 +97,19 @@ ICON_MUTED = 'mdi:speaker-off'
 ICON_MULTIROOM = 'mdi:speaker-multiple'
 ICON_BLUETOOTH = 'mdi:speaker-bluetooth'
 ICON_PUSHSTREAM = 'mdi:cast-audio'
-ICON_TTS = 'mdi:text-to-speech'
+ICON_TTS = 'mdi:speaker-message'
 
 ATTR_SLAVE = 'slave'
 ATTR_LINKPLAY_GROUP = 'linkplay_group'
 ATTR_FWVER = 'firmware'
 ATTR_TRCNT = 'tracks_local'
 ATTR_TRCRT = 'track_current'
+ATTR_STURI = 'stream_uri'
 ATTR_UUID = 'uuid'
 ATTR_TTS = 'tts_active'
 ATTR_SNAPSHOT = 'snapshot_active'
 ATTR_SNAPSPOT = 'snapshot_spotify'
 ATTR_DEBUG = 'debug_info'
-ATTR_MASS_POSITION = 'media_position_mass'
 
 CONF_NAME = 'name'
 CONF_LASTFM_API_KEY = 'lastfm_api_key'
@@ -122,13 +120,11 @@ CONF_MULTIROOM_WIFIDIRECT = 'multiroom_wifidirect'
 CONF_VOLUME_STEP = 'volume_step'
 CONF_LEDOFF = 'led_off'
 CONF_UUID = 'uuid'
-CONF_ANNOUNCE_VOLUME_INCREASE = 'announce_volume_increase'
 
 DEFAULT_ICECAST_UPDATE = 'StationName'
 DEFAULT_MULTIROOM_WIFIDIRECT = False
 DEFAULT_LEDOFF = False
 DEFAULT_VOLUME_STEP = 5
-DEFAULT_ANNOUNCE_VOLUME_INCREASE = 15
 
 DEBUGSTR_ATTR = True
 LASTFM_API_BASE = 'http://ws.audioscrobbler.com/2.0/?method='
@@ -148,7 +144,7 @@ UNA_THROTTLE = timedelta(seconds=20)
 MROOM_UJWDIR = timedelta(seconds=20)
 MROOM_UJWROU = timedelta(seconds=3)
 SPOTIFY_PAUSED_TIMEOUT = timedelta(seconds=300)
-AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=2)
+AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
 #PARALLEL_UPDATES = 0
 
 CUT_EXTENSIONS = ['mp3', 'mp2', 'm2a', 'mpg', 'wav', 'aac', 'flac', 'flc', 'm4a', 'ape', 'wma', 'ac3', 'ogg']
@@ -211,7 +207,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_LASTFM_API_KEY): cv.string,
         vol.Optional(CONF_UUID, default=''): cv.string,
         vol.Optional(CONF_VOLUME_STEP, default=DEFAULT_VOLUME_STEP): vol.All(int, vol.Range(min=1, max=25)),
-        vol.Optional(CONF_ANNOUNCE_VOLUME_INCREASE, default=DEFAULT_ANNOUNCE_VOLUME_INCREASE): vol.All(int, vol.Range(min=0, max=50)),
     }
 )
 
@@ -235,7 +230,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     multiroom_wifidirect = config.get(CONF_MULTIROOM_WIFIDIRECT)
     led_off = config.get(CONF_LEDOFF)
     volume_step = config.get(CONF_VOLUME_STEP)
-    announce_volume_increase = config.get(CONF_ANNOUNCE_VOLUME_INCREASE)
     lastfm_api_key = config.get(CONF_LASTFM_API_KEY)
     uuid = config.get(CONF_UUID)
 
@@ -284,7 +278,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                             multiroom_wifidirect,
                             led_off,
                             volume_step,
-                            announce_volume_increase,
                             lastfm_api_key,
                             uuid,
                             state,
@@ -304,7 +297,6 @@ class LinkPlayDevice(MediaPlayerEntity):
                  multiroom_wifidirect,
                  led_off,
                  volume_step,
-                 announce_volume_increase,
                  lastfm_api_key,
                  uuid,
                  state,
@@ -325,7 +317,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         self._state = state
         self._volume = 0
         self._volume_step = volume_step
-        self._announce_volume_increase = announce_volume_increase
         self._led_off = led_off
         self._fadevol = False
         self._source = None
@@ -341,7 +332,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         self._sound_mode = None
         self._muted = False
         self._playhead_position = 0
-        self._mass_position = 0
         self._duration = 0
         self._position_updated_at = None
         self._spotify_paused_at = None
@@ -376,14 +366,12 @@ class LinkPlayDevice(MediaPlayerEntity):
         self._playing_webplaylist = False
         self._playing_tts = False
         self._playing_mediabrowser = False
-        self._playing_mass = False
-        self._playing_mass_radio = False
-        self._announce = False
         self._slave_list = None
         self._multiroom_wifidirect = multiroom_wifidirect
         self._multiroom_group = []
         self._multiroom_prevsrc = None
         self._multiroom_unjoinat = None
+        self._wait_for_mcu = 0
         self._new_song = True
         self._unav_throttle = False
         self._icecast_name = None
@@ -396,27 +384,17 @@ class LinkPlayDevice(MediaPlayerEntity):
         self._snap_volume = 0
         self._snap_spotify = False
         self._snap_spotify_volumeonly = False
-        self._snap_mass = False
         self._snap_nometa = False
         self._snap_playing_mediabrowser = False
         self._snap_media_source_uri = None
         self._snap_seek = False
         self._snap_playhead_position = 0
-
-        # Listen for Music Assistant bus events
-        hass.bus.async_listen("mass_event", self.handle_event)
-
+        
     async def async_added_to_hass(self):
         """Record entity."""
         self.hass.data[DOMAIN].entities.append(self)
 
-    def handle_event(self, event):
-        """Retrieve events from Music Assistant through the event bus."""
-        if self.entity_id == event.data.get("object_id"):
-            if self._playing_mass:
-                self.get_music_assistant_metadata(event)
-           
-    async def async_call_linkplay_httpapi(self, cmd, jsn):
+    async def call_linkplay_httpapi(self, cmd, jsn):
         """Get the latest data from HTTPAPI service."""
         url = "http://{0}/httpapi.asp?command={1}".format(self._host, cmd)
         
@@ -431,8 +409,8 @@ class LinkPlayDevice(MediaPlayerEntity):
                 response = await websession.get(url)
 
         except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            _LOGGER.warning(
-                "Failed async communicating with LinkPlayDevice (httpapi) '%s': %s", self._name, type(error)
+            _LOGGER.debug(
+                "Failed communicating with LinkPlayDevice (httpapi) '%s': %s", self._name, type(error)
             )
             return False
 
@@ -444,16 +422,17 @@ class LinkPlayDevice(MediaPlayerEntity):
                 _LOGGER.debug("For: %s  cmd: %s  resp: %s", self._name, cmd, data)
         else:
             _LOGGER.error(
-                "For: %s (%s) async get failed, response code: %s Full message: %s",
+                "For: %s (%s) Get failed, response code: %s Full message: %s",
                 self._name,
                 self._host,
                 response.status,
                 response,
             )
             return False
+
         return data
 
-    async def async_call_linkplay_tcpuart(self, cmd):
+    async def call_linkplay_tcpuart(self, cmd):
         """Get the latest data from TCP UART service."""
         LENC = format(len(cmd), '02x')
         HED1 = '18 96 18 20 '
@@ -487,11 +466,12 @@ class LinkPlayDevice(MediaPlayerEntity):
 
     @Throttle(UNA_THROTTLE)
     async def async_get_status(self):
-        resp = await self.async_call_linkplay_httpapi("getPlayerStatus", True)
+        resp = await self.call_linkplay_httpapi("getPlayerStatus", True)
         if resp is False:
             _LOGGER.debug('Unable to connect to device: %s, %s', self.entity_id, self._name)
             self._state = STATE_UNAVAILABLE
             self._unav_throttle = True
+            self._wait_for_mcu = 0
             self._playhead_position = None
             self._duration = None
             self._position_updated_at = None
@@ -503,7 +483,6 @@ class LinkPlayDevice(MediaPlayerEntity):
             self._media_uri_final = None
             self._media_source_uri = None
             self._playing_mediabrowser = False
-            self._playing_mass = False
             self._playing_stream = False
             self._icecast_name = None
             self._source = None
@@ -554,6 +533,10 @@ class LinkPlayDevice(MediaPlayerEntity):
                 self._multiroom_prevsrc = None
                 return True
 
+        # if self._wait_for_mcu > 0:  # have wait for the hardware unit to finish processing command, otherwise some reported status values will be incorrect
+            # await asyncio.sleep(self._wait_for_mcu)
+            # self._wait_for_mcu = 0
+
         if self._unav_throttle:
             await self.async_get_status()
         else:
@@ -567,7 +550,7 @@ class LinkPlayDevice(MediaPlayerEntity):
             self._unav_throttle = False
             if self._first_update or (self._state == STATE_UNAVAILABLE or self._multiroom_wifidirect):
                 #_LOGGER.debug("03 Update first time getStatus %s, %s", self.entity_id, self._name)
-                device_status = await self.async_call_linkplay_httpapi("getStatus", True)
+                device_status = await self.call_linkplay_httpapi("getStatus", True)
                 if device_status is not None:
                     if isinstance(device_status, dict):
                         if self._state == STATE_UNAVAILABLE:
@@ -603,7 +586,7 @@ class LinkPlayDevice(MediaPlayerEntity):
 
                         if self._led_off and self._uuid != '':
                             if self._uuid.startswith(UUID_ARYLIC) and self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_RAKOIT_UART_MIN):
-                                value = await self.async_call_linkplay_tcpuart('MCU+PAS+RAKOIT:LED:0&')
+                                value = await self.call_linkplay_tcpuart('MCU+PAS+RAKOIT:LED:0&')
                                 _LOGGER.debug("LED turn off: %s, %s, response: %s", self.entity_id, self._name, value)
 
                         if not self._multiroom_wifidirect and self._fw_ver:
@@ -666,11 +649,9 @@ class LinkPlayDevice(MediaPlayerEntity):
                 # 'pause': STATE_PAUSED,
             # }.get(self._player_statdata['status'], STATE_IDLE)
             
-            if (self._player_statdata['mode'] in ['-1', '0'] or self._player_statdata['status'] == 'stop'): 
+            if (self._player_statdata['mode'] in ['-1', '0', '99'] or self._player_statdata['status'] == 'stop'): 
                 if utcnow() >= (self._idletime_updated_at + AUTOIDLE_STATE_TIMEOUT):
                     self._state = STATE_IDLE
-                    self._media_uri_final = None
-                    self._media_uri = None
                     #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
             elif self._player_statdata['status'] in ['play', 'load']:
                 self._state = STATE_PLAYING
@@ -679,16 +660,13 @@ class LinkPlayDevice(MediaPlayerEntity):
                 self._state = STATE_PAUSED
                 #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
 
-            self._mass_position = int(int(self._player_statdata['curpos']) / 1000)
-            
-            if not self._playing_mass:
-                if self._state in [STATE_PLAYING, STATE_PAUSED]:
-                    self._duration = int(int(self._player_statdata['totlen']) / 1000)
-                    self._playhead_position = int(int(self._player_statdata['curpos']) / 1000)
-                    #_LOGGER.debug("04 Update DUR, POS %s, %s, %s, %s, %s", self.entity_id, self._name, self._state, self._duration, self._playhead_position)
-                else:
-                    self._duration = 0
-                    self._playhead_position = 0
+            if self._state in [STATE_PLAYING, STATE_PAUSED]:
+                self._duration = int(int(self._player_statdata['totlen']) / 1000)
+                self._playhead_position = int(int(self._player_statdata['curpos']) / 1000)
+                #_LOGGER.debug("04 Update DUR, POS %s, %s, %s, %s, %s", self.entity_id, self._name, self._state, self._duration, self._playhead_position)
+            else:
+                self._duration = 0
+                self._playhead_position = 0
 
             #_LOGGER.debug("05 Update self._playing_whatever %s, %s", self.entity_id, self._name)
             self._playing_spotify = bool(self._player_statdata['mode'] == '31')
@@ -696,22 +674,9 @@ class LinkPlayDevice(MediaPlayerEntity):
             self._playing_stream = self._player_statdata['mode'] in SOURCES_STREAM
             self._playing_localfile = self._player_statdata['mode'] in SOURCES_LOCALF
 
-            if self._announce and self._playing_stream and not self._playing_tts:
-                self._playing_stream = False
-                self._playing_tts = True
-                if self._announce_volume_increase > 0:
-                    volume = int(self._snap_volume) + int(self._announce_volume_increase)
-                    if volume > 100:
-                        volume = 100
-                    _LOGGER.debug("For: %s, Announce started, increasing volume with %s to %s", self._name, self._announce_volume_increase, volume)
-                    value = await self.async_call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
-                    if value == "OK":
-                        self._volume = volume
-
             if bool(self._player_statdata['mode'] != '10'):
                 #self._playing_tts = False
                 self._playing_mediabrowser = False
-                self._playing_mass = False
 
             if not (self._playing_liveinput or self._playing_stream or self._playing_spotify):
                 self._playing_localfile = True
@@ -737,7 +702,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                     bool(self._media_uri.find('.dzcdn.') != -1) or \
                     bool(self._media_uri.find('.deezer.') != -1)
 
-            if not (self._playing_webplaylist or self._playing_mass):
+            if not self._playing_webplaylist:
                 #_LOGGER.debug("07 Set Name to Source: %s, %s", self.entity_id, self._name)
                 source_t = SOURCES_MAP.get(self._player_statdata['mode'], 'Network')
                 source_n = None
@@ -812,10 +777,9 @@ class LinkPlayDevice(MediaPlayerEntity):
                     self._media_album = None
                     self._media_image_url = None
                     self._icecast_name = None
-                    if self._announce:
-                        await self.async_restore()
+                    self._playing_tts = False
 
-                if self._playing_localfile and self._state in [STATE_PLAYING, STATE_PAUSED] and not self._playing_tts and not self._playing_mass:
+                if self._playing_localfile and self._state in [STATE_PLAYING, STATE_PAUSED] and not self._playing_tts:
                     #_LOGGER.debug("10 Update async_get_playerstatus_metadata FILE %s, %s", self.entity_id, self._name)
                     await self.async_get_playerstatus_metadata(self._player_statdata)
 
@@ -833,12 +797,12 @@ class LinkPlayDevice(MediaPlayerEntity):
                     else:
                         self._media_title = self._source
 
-                elif self._state == STATE_PLAYING and self._media_uri and int(self._player_statdata['totlen']) > 0 and not self._snapshot_active and not self._playing_tts and not self._playing_mediabrowser and not self._playing_mass:
+                elif self._state == STATE_PLAYING and self._media_uri and int(self._player_statdata['totlen']) > 0 and not self._snapshot_active and not self._playing_tts and not self._playing_mediabrowser:
                     #_LOGGER.debug("10 Update async_get_playerstatus_metadata media_URI %s, %s", self.entity_id, self._name)
                     if not self._nometa:
                         await self.async_get_playerstatus_metadata(self._player_statdata)
 
-                elif self._state == STATE_PLAYING and self._media_uri_final and int(self._player_statdata['totlen']) <= 0 and not self._snapshot_active and not self._playing_tts and not self._playing_mass:
+                elif self._state == STATE_PLAYING and self._media_uri_final and int(self._player_statdata['totlen']) <= 0 and not self._snapshot_active and not self._playing_tts:
                     #_LOGGER.debug("10 Update async_update_from_icecast FILE %s, %s", self.entity_id, self._name)
                     if self._ice_skip_throt:
                         await self.async_update_from_icecast(no_throttle=True)
@@ -851,7 +815,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                         await self.async_get_local_mediasource_metadata_from_path()
 
                 self._new_song = await self.async_is_playing_new_track()
-                if self._lastfm_api_key is not None and self._new_song and not self._playing_mass:
+                if self._lastfm_api_key is not None and self._new_song:
                     #_LOGGER.debug("11 Update async_get_lastfm_coverart %s, %s", self.entity_id, self._name)
                     await self.async_get_lastfm_coverart()
 
@@ -864,7 +828,7 @@ class LinkPlayDevice(MediaPlayerEntity):
 
         # Get multiroom slave information #
         
-        slave_list = await self.async_call_linkplay_httpapi("multiroom:getSlaveList", True)
+        slave_list = await self.call_linkplay_httpapi("multiroom:getSlaveList", True)
         if slave_list is None:
             self._is_master = False
             self._slave_list = None
@@ -924,7 +888,7 @@ class LinkPlayDevice(MediaPlayerEntity):
     def icon(self):
         """Return the icon of the device."""
 
-        if self._playing_tts or self._announce:
+        if self._playing_tts:
             return ICON_TTS
 
         if self._state in [STATE_PAUSED, STATE_UNAVAILABLE, STATE_IDLE, STATE_UNKNOWN]:
@@ -998,15 +962,13 @@ class LinkPlayDevice(MediaPlayerEntity):
         if self._slave_mode and self._features:
             return self._features
 
-        if self._playing_localfile or self._playing_spotify or self._playing_webplaylist or self._playing_mass:
+        if self._playing_localfile or self._playing_spotify or self._playing_webplaylist:
             if self._state in [STATE_PLAYING, STATE_PAUSED]:
                 self._features = \
                 SUPPORT_SELECT_SOURCE | SUPPORT_SELECT_SOUND_MODE | SUPPORT_PLAY_MEDIA | SUPPORT_GROUPING | SUPPORT_BROWSE_MEDIA | \
                 SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP | SUPPORT_VOLUME_MUTE | \
                 SUPPORT_STOP | SUPPORT_PLAY | SUPPORT_PAUSE | \
-                SUPPORT_NEXT_TRACK | SUPPORT_PREVIOUS_TRACK | SUPPORT_SHUFFLE_SET | SUPPORT_REPEAT_SET 
-                if not self._playing_mass_radio:
-                    self._features |=  SUPPORT_SEEK
+                SUPPORT_NEXT_TRACK | SUPPORT_PREVIOUS_TRACK | SUPPORT_SHUFFLE_SET | SUPPORT_REPEAT_SET | SUPPORT_SEEK
             else:
                 self._features = \
                 SUPPORT_SELECT_SOURCE | SUPPORT_SELECT_SOUND_MODE | SUPPORT_PLAY_MEDIA | SUPPORT_GROUPING | SUPPORT_BROWSE_MEDIA | \
@@ -1019,21 +981,21 @@ class LinkPlayDevice(MediaPlayerEntity):
             SUPPORT_SELECT_SOURCE | SUPPORT_SELECT_SOUND_MODE | SUPPORT_PLAY_MEDIA | SUPPORT_GROUPING | SUPPORT_BROWSE_MEDIA | \
             SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP | SUPPORT_VOLUME_MUTE | \
             SUPPORT_STOP | SUPPORT_PLAY | SUPPORT_PAUSE
-            if self._state in [STATE_PLAYING, STATE_PAUSED] and (self._playing_mediabrowser):
+            if self._state in [STATE_PLAYING, STATE_PAUSED] and self._playing_mediabrowser:
                 self._features |= SUPPORT_SEEK
 
         elif self._playing_liveinput:
             self._features = \
             SUPPORT_SELECT_SOURCE | SUPPORT_SELECT_SOUND_MODE | SUPPORT_PLAY_MEDIA | SUPPORT_GROUPING | SUPPORT_BROWSE_MEDIA | \
             SUPPORT_VOLUME_SET | SUPPORT_VOLUME_STEP | SUPPORT_VOLUME_MUTE | \
-            SUPPORT_STOP | SUPPORT_PLAY
+            SUPPORT_STOP
 
         return self._features
 
     @property
     def media_position(self):
         """Time in seconds of current playback head position."""
-        if (self._playing_localfile or self._playing_spotify or self._slave_mode or self._playing_mediabrowser or self._playing_mass) and self._state != STATE_UNAVAILABLE:
+        if (self._playing_localfile or self._playing_spotify or self._slave_mode or self._playing_mediabrowser) and self._state != STATE_UNAVAILABLE:
             return self._playhead_position
         else:
             return None
@@ -1041,7 +1003,7 @@ class LinkPlayDevice(MediaPlayerEntity):
     @property
     def media_duration(self):
         """Time in seconds of current song duration."""
-        if (self._playing_localfile or self._playing_spotify or self._slave_mode or self._playing_mediabrowser or self._playing_mass) and self._state != STATE_UNAVAILABLE:
+        if (self._playing_localfile or self._playing_spotify or self._slave_mode or self._playing_mediabrowser) and self._state != STATE_UNAVAILABLE:
             return self._duration
         else:
             return None
@@ -1090,11 +1052,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         return MEDIA_TYPE_MUSIC
 
     @property
-    def media_content_id(self):
-        """Content ID of current playing media."""
-        return self._media_uri_final
-
-    @property
     def ssid(self):
         """SSID to use for multiroom configuration."""
         return self._ssid
@@ -1140,7 +1097,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         if self._slave_mode:
             attributes[ATTR_SLAVE] = self._slave_mode
         if self._media_uri_final:
-            attributes[ATTR_MEDIA_CONTENT_ID] = self._media_uri_final
+            attributes[ATTR_STURI] = self._media_uri_final
         if len(self._trackq) > 0:
             attributes[ATTR_TRCNT] = len(self._trackq) - 1
         if self._trackc:
@@ -1151,8 +1108,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         attributes[ATTR_TTS] = self._playing_tts
         attributes[ATTR_SNAPSHOT] = self._snapshot_active
         attributes[ATTR_SNAPSPOT] = self._snap_spotify
-        
-        attributes[ATTR_MASS_POSITION] = self._mass_position
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
@@ -1176,9 +1131,6 @@ class LinkPlayDevice(MediaPlayerEntity):
                 
             if self._playing_mediabrowser:
                 atrdbg = atrdbg + " _playing_mediabrowser"
-                
-            if self._playing_mass:
-                atrdbg = atrdbg + " _playing_mass"
 
             attributes[ATTR_DEBUG] = atrdbg
 
@@ -1214,32 +1166,28 @@ class LinkPlayDevice(MediaPlayerEntity):
     async def async_media_next_track(self):
         """Send media_next command to media player."""
         if not self._slave_mode:
-            if not self._playing_mass:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:next", None)
-                self._playhead_position = 0
-                self._duration = 0
-                self._position_updated_at = utcnow()
-                self._trackc = None
-                if value != "OK":
-                    _LOGGER.warning("Failed skip to next track. Device: %s, Got response: %s", self.entity_id, value)
-            else:
-                await self.hass.services.async_call("mass","queue_command", service_data = {"entity_id": self.entity_id, "command": "next"})
+            value = await self.call_linkplay_httpapi("setPlayerCmd:next", None)
+            self._playhead_position = 0
+            self._duration = 0
+            self._position_updated_at = utcnow()
+            self._trackc = None
+            self._wait_for_mcu = 2
+            if value != "OK":
+                _LOGGER.warning("Failed skip to next track. Device: %s, Got response: %s", self.entity_id, value)
         else:
             await self._master.async_media_next_track()
 
     async def async_media_previous_track(self):
         """Send media_previous command to media player."""
         if not self._slave_mode:
-            if not self._playing_mass:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:prev", None)
-                self._playhead_position = 0
-                self._duration = 0
-                self._position_updated_at = utcnow()
-                self._trackc = None
-                if value != "OK":
-                    _LOGGER.warning("Failed to skip to previous track." " Device: %s, Got response: %s", self.entity_id, value)
-            else:
-                await self.hass.services.async_call("mass","queue_command", service_data = {"entity_id": self.entity_id, "command": "previous"})
+            value = await self.call_linkplay_httpapi("setPlayerCmd:prev", None)
+            self._playhead_position = 0
+            self._duration = 0
+            self._position_updated_at = utcnow()
+            self._trackc = None
+            self._wait_for_mcu = 2
+            if value != "OK":
+                _LOGGER.warning("Failed to skip to previous track." " Device: %s, Got response: %s", self.entity_id, value)
         else:
             await self._master.async_media_previous_track()
 
@@ -1247,7 +1195,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         """Send media_play command to media player."""
         if not self._slave_mode:
             if self._state == STATE_PAUSED:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:resume", None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:resume", None)
 
             elif self._prev_source != None:
                 temp_source = next((k for k in self._source_list if self._source_list[k] == self._prev_source), None)
@@ -1255,14 +1203,14 @@ class LinkPlayDevice(MediaPlayerEntity):
                     return
 
                 if temp_source.startswith('http') or temp_source == 'udisk' or temp_source == 'TFcard':
-                    await self.async_select_source(self._prev_source)
+                    self.select_source(self._prev_source)
                     if self._source != None:
                         self._source = None
                         value = "OK"
                 else:
-                    value = await self.async_call_linkplay_httpapi("setPlayerCmd:play", None)
+                    value = await self.call_linkplay_httpapi("setPlayerCmd:play", None)
             else:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:play", None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:play", None)
 
             if value == "OK":
                 self._state = STATE_PLAYING
@@ -1282,13 +1230,13 @@ class LinkPlayDevice(MediaPlayerEntity):
     async def async_media_pause(self):
         """Send media_pause command to media player."""
         if not self._slave_mode:
-            if self._playing_stream and not (self._playing_mediabrowser or self._playing_mass):
+            if self._playing_stream and not self._playing_mediabrowser:
                 # Pausing a live stream will cause a buffer overrun in hardware. Stop is the correct procedure in this case.
                 # If the stream is configured as an input source, when pressing Play after this, it will be started again (using self._prev_source).
                 await self.async_media_stop()
                 return
 
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
             if value == "OK":
                 self._position_updated_at = utcnow()
                 self._idletime_updated_at = self._position_updated_at
@@ -1299,7 +1247,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                     for slave in self._slave_list:
                         await slave.async_set_state(self._state)
                         await slave.async_set_position_updated_at(self.media_position_updated_at)
-#                self.async_schedule_update_ha_state(True)
+#                #await self.async_schedule_update_ha_state(True)
             else:
                 _LOGGER.warning("Failed to pause playback. Device: %s, Got response: %s", self.entity_id, value)
         else:
@@ -1311,15 +1259,17 @@ class LinkPlayDevice(MediaPlayerEntity):
  
             if self._playing_spotify or self._playing_liveinput:
                 if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS):
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
-                await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
+
+                await self.call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                # self._wait_for_mcu = 1.2
 
             if self._playing_stream:  #recent firmwares don't stop the previous stream quickly enough
                 if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS):
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
 
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:stop", None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:stop", None)
             if value == "OK":
                 self._state = STATE_IDLE
                 self._playhead_position = 0
@@ -1335,15 +1285,13 @@ class LinkPlayDevice(MediaPlayerEntity):
                 self._media_uri_final = None
                 self._media_source_uri = None
                 self._playing_mediabrowser = False
-                self._playing_mass = False
                 self._playing_stream = False
                 self._trackc = None
                 self._media_image_url = None
                 self._position_updated_at = utcnow()
                 self._idletime_updated_at = self._position_updated_at
                 self._spotify_paused_at = None
-                self._snapshot_active = False
-                self.async_schedule_update_ha_state(True)
+                #await self.async_schedule_update_ha_state(True)
                 if self._slave_list is not None:
                     for slave in self._slave_list:
                         await slave.async_set_state(self._state)
@@ -1358,9 +1306,10 @@ class LinkPlayDevice(MediaPlayerEntity):
         if not self._slave_mode:
             _LOGGER.debug("Seek. Device: %s, DUR: %s POS: %", self.name, self._duration, position)
             if self._duration > 0 and position >= 0 and position <= self._duration:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:seek:{0}".format(str(position)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:seek:{0}".format(str(position)), None)
                 self._position_updated_at = utcnow()
                 self._idletime_updated_at = self._position_updated_at
+                self._wait_for_mcu = 0.2
                 if value != "OK":
                     _LOGGER.warning("Failed to seek. Device: %s, Got response: %s", self.entity_id, value)
         else:
@@ -1384,19 +1333,8 @@ class LinkPlayDevice(MediaPlayerEntity):
                 self._playing_mediabrowser = False
                 self._nometa = False
 
-            if kwargs.get(ATTR_MEDIA_ANNOUNCE):
-                _LOGGER.debug("For: %s, Announce parameter set, Media_id: %s", self._name, media_id)
-                self._announce = True
-                #self._playing_tts = True
-                await self.async_snapshot(False)
-                self._playing_mediabrowser = False
-                self._playing_mass = False
-            else:
-                self._playing_tts = False
-                self._announce = False
-
             if media_source.is_media_source_id(media_id):
-                play_item = await media_source.async_resolve_media(self.hass, media_id, self.entity_id)
+                play_item = await media_source.async_resolve_media(self.hass, media_id)
                 if media_id.find('radio_browser') != -1:  # radios are an exception, be treated by server redirect checker and icecast metadata parser
                     self._playing_mediabrowser = False
                 else:
@@ -1442,43 +1380,45 @@ class LinkPlayDevice(MediaPlayerEntity):
             if media_id_check.startswith('http'):
                 media_type = MEDIA_TYPE_URL
 
-            if media_id_check.find('8095/media_player') != -1:  # Music Assistant exception, not to be treated by server redirect checker and other metadata parsers
-                self._playing_mass = True
-            else:
-                self._playing_mass = False
-
             if media_id_check.endswith('.m3u') or media_id_check.endswith('.m3u8'):
-                _LOGGER.debug("For: %s, Detected M3U list: %s", self._name, media_id)
+                _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id)
                 media_id = await self.async_parse_m3u_url(media_id)
 
             if media_id_check.endswith('.pls'):
-                _LOGGER.debug("For: %s, Detected PLS list: %s", self._name, media_id)
+                _LOGGER.debug("For: %s, Detected PLS list: %s, Media_id: %s", self._name, media_id)
                 media_id = await self.async_parse_pls_url(media_id)
 
             if media_type == MEDIA_TYPE_URL:
-                if self._playing_mediabrowser or self._playing_mass:
+                if self._playing_mediabrowser:
                     media_id_final = media_id
                 else:
                     media_id_final = await self.async_detect_stream_url_redirection(media_id)
 
                 if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS) and self._state == STATE_PLAYING:
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
                 
                 if self._playing_spotify:  # disconnect from Spotify before playing new http source
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
 
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:play:{0}".format(media_id_final), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:play:{0}".format(media_id_final), None)
                 if value != "OK":
                     _LOGGER.warning("Failed to play media type URL. Device: %s, Got response: %s, Media_Id: %s", self.entity_id, value, media_id)
                     return False
 
             elif media_type in [MEDIA_TYPE_MUSIC, MEDIA_TYPE_TRACK]:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:playLocalList:{0}".format(media_id), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:playLocalList:{0}".format(media_id), None)
                 if value != "OK":
                     _LOGGER.warning("Failed to play media type music. Device: %s, Got response: %s, Media_Id: %s", self.entity_id, value, media_id)
                     return False
 
             self._state = STATE_PLAYING
+            if media_id.find('tts_proxy') != -1:
+                #_LOGGER.debug("Setting TTS: %s, %s", self.entity_id, self._name)
+                self._playing_tts = True
+                self._playing_mediabrowser = False
+                self._playing_stream = False
+            else:
+                self._playing_tts = False
             self._media_title = None
             self._media_artist = None
             self._media_album = None
@@ -1497,10 +1437,9 @@ class LinkPlayDevice(MediaPlayerEntity):
             elif media_type == MEDIA_TYPE_MUSIC:
                 self._media_uri = None
                 self._media_uri_final = None
-            if self._announce:
-                self.async_schedule_update_ha_state(True)
-                _LOGGER.debug("For: %s, Announce started: %s", self._name, media_id)
+                self._wait_for_mcu = 0.4
             return True
+
         else:
             if not self._snapshot_active:
                 await self._master.async_play_media(media_type, media_id)
@@ -1515,8 +1454,8 @@ class LinkPlayDevice(MediaPlayerEntity):
 
             if self._playing_spotify:  # disconnect from Spotify before selecting new source
                 if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS):
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
-                await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
+                await self.call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
 
             if temp_source == "udisk":
                 await self.async_tracklist_via_upnp("USB")
@@ -1524,18 +1463,24 @@ class LinkPlayDevice(MediaPlayerEntity):
             if len(self._source_list) > 0:
                 prev_source = next((k for k in self._source_list if self._source_list[k] == self._source), None)
 
+            if prev_source and prev_source.startswith('http') and temp_source in ['line-in', 'line-in2', 'optical', 'bluetooth', 'co-axial', 'HDMI', 'cd', 'udisk', 'RCA']:
+                self._wait_for_mcu = 1
+
             self._unav_throttle = False
             if temp_source.startswith('http'):
                 temp_source_final = await self.async_detect_stream_url_redirection(temp_source)
 
                 if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS) and self._state == STATE_PLAYING:
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)  #recent firmwares don't stop the previous stream while loading the new one, can take several seconds
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)  #recent firmwares don't stop the previous stream while loading the new one, can take several seconds
 
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:play:{0}".format(temp_source_final), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:play:{0}".format(temp_source_final), None)
                 if value == "OK":
                     self._state = STATE_PLAYING
+                    if prev_source and prev_source.find('http') == -1:
+                        self._wait_for_mcu = 2  # switching from live to stream input -> time to report correct volume value at update
+                    else:
+                        self._wait_for_mcu = 0.5
                     self._playing_tts = False
-                    self._playing_mass = False
                     self._source = source
                     self._media_uri = temp_source
                     self._media_uri_final = temp_source_final
@@ -1556,9 +1501,13 @@ class LinkPlayDevice(MediaPlayerEntity):
                 else:
                     _LOGGER.warning("Failed to select http source and play. Device: %s, Got response: %s", self.entity_id, value)
             else:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:{0}".format(temp_source), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:switchmode:{0}".format(temp_source), None)
                 if value == "OK":
                     self._state = STATE_PLAYING
+                    # if temp_source and temp_source in ['udisk', 'TFcard']:
+                        # self._wait_for_mcu = 2    # switching to locally stored files -> time to report correct volume value at update
+                    # else:
+                        # self._wait_for_mcu = 0.6  # switching to a physical input -> time to report correct volume value at update
                     self._source = source
                     self._media_uri = None
                     self._media_uri_final = None
@@ -1573,7 +1522,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                 else:
                     _LOGGER.warning("Failed to select source. Device: %s, Got response: %s", self.entity_id, value)
 
-            self.async_schedule_update_ha_state(True)
+            #await self.async_schedule_update_ha_state(True)
         else:
             await self._master.async_select_source(source)
 
@@ -1582,7 +1531,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         if not self._slave_mode:
             mode = list(SOUND_MODES.keys())[list(
                 SOUND_MODES.values()).index(sound_mode)]
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:equalizer:{0}".format(mode), None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:equalizer:{0}".format(mode), None)
             if value == "OK":
                 self._sound_mode = sound_mode
                 if self._slave_list is not None:
@@ -1606,7 +1555,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                     mode = '3'
                 elif self._repeat == REPEAT_MODE_ONE:
                     mode = '1'
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
             if value != "OK":
                 _LOGGER.warning("Failed to change shuffle mode. Device: %s, Got response: %s", self.entity_id, value)
         else:
@@ -1622,7 +1571,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                 mode = '2' if self._shuffle else '3'
             elif repeat == REPEAT_MODE_ONE:
                 mode = '1'
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
             if value != "OK":
                 _LOGGER.warning("Failed to change repeat mode. Device: %s, Got response: %s", self.entity_id, value)
         else:
@@ -1640,9 +1589,9 @@ class LinkPlayDevice(MediaPlayerEntity):
         if not (self._slave_mode and self._multiroom_wifidirect):
 
             if self._is_master:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
             else:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
 
             if value == "OK":
                 self._volume = volume
@@ -1651,7 +1600,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if self._snapshot_active:
                 return
-            value = await self._master.async_call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
+            value = await self._master.call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
             if value == "OK":
                 self._volume = volume
             else:
@@ -1669,9 +1618,9 @@ class LinkPlayDevice(MediaPlayerEntity):
         if not (self._slave_mode and self._multiroom_wifidirect):
 
             if self._is_master:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
             else:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
 
             if value == "OK":
                 self._volume = volume
@@ -1680,7 +1629,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if self._snapshot_active:
                 return
-            value = await self._master.async_call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
+            value = await self._master.call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
             if value == "OK":
                 self._volume = volume
             else:
@@ -1690,12 +1639,31 @@ class LinkPlayDevice(MediaPlayerEntity):
         """Set volume level, input range 0..1, linkplay device 0..100."""
         volume = str(round(int(volume * MAX_VOL)))
         if not (self._slave_mode and self._multiroom_wifidirect):
+
+            # if self._fadevol:
+                # voldiff = int(self._volume) - int(volume)
+                # steps = 1
+                # if voldiff < 33:
+                    # steps = 2
+                # elif voldiff >= 33 and voldiff < 66:
+                    # steps = 4
+                # elif voldiff > 66:
+                    # steps = 6
+                # volstep = int(round(voldiff / steps))
+                # voltemp = int(self._volume)
+# #                self._wait_for_mcu = 1  # set delay in update routine for the fade to finish
+                # for v in (range(0, steps - 1)):
+                    # voltemp = voltemp - volstep
+                    # # self._lpapi.call('GET', 'setPlayerCmd:vol:{0}'.format(str(voltemp)))
+                    # value = await self.call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(voltemp)), None)
+                    # await asyncio.sleep(0.6 / steps)
+
             if self._is_master:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:slave_vol:{0}".format(str(volume)), None)
             else:
                 if self._snapshot_active:
                     await asyncio.sleep(1)
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
 
             if value == "OK":
                 self._volume = volume
@@ -1704,42 +1672,31 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if self._snapshot_active:
                 return
-            value = await self._master.async_call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
+            value = await self._master.call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(volume)), None)
             if value == "OK":
                 self._volume = volume
             else:
                 _LOGGER.warning("Failed to set volume. Device: %s, Got response: %s", self.entity_id, value)
 
+
     async def async_mute_volume(self, mute):
         """Mute (true) or unmute (false) media player."""
         if not (self._slave_mode and self._multiroom_wifidirect):
             if self._is_master:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:slave_mute:{0}".format(str(int(mute))), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:slave_mute:{0}".format(str(int(mute))), None)
             else:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:mute:{0}".format(str(int(mute))), None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:mute:{0}".format(str(int(mute))), None)
             
             if value == "OK":
                 self._muted = bool(int(mute))
             else:
                 _LOGGER.warning("Failed mute/unmute volume. Device: %s, Got response: %s", self.entity_id, value)
         else:
-            value = await self._master.async_call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(int(mute))), None)
+            value = await self._master.call_linkplay_httpapi("multiroom:SlaveVolume:{0}:{1}".format(self._slave_ip, str(int(mute))), None)
             if value == "OK":
                 self._muted = bool(int(mute))
             else:
                 _LOGGER.warning("Failed mute/unmute volume. Device: %s, Got response: %s", self.entity_id, value)
-
-    async def async_turn_on(self):
-        """Use Mune/Unmute instead, because power is not supported."""
-        await self.async_mute_volume(False)
-
-    async def async_turn_off(self):
-        """Use Mune/Unmute instead, because power is not supported."""
-        await self.async_mute_volume(True)
-
-    async def async_toggle(self):
-        """Use Mune/Unmute instead, because power is not supported."""
-        await self.async_mute_volume(not self._muted)
 
     async def call_update_lastfm(self, cmd, params):
         """Update LastFM metadata."""
@@ -1787,82 +1744,10 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if coverart_url.find('2a96cbd8b46e442fc41c2b86b821562f') != -1:
                 # don't show the sheriff star empty cover https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png
+                _LOGGER.debug("LastFM ratelimited")
                 self._media_image_url = None
             else:
                 self._media_image_url = coverart_url
-
-    def get_music_assistant_metadata(self, event):
-        if self._state in [STATE_PLAYING, STATE_PAUSED]:
-            if event.data.get("type") == "queue_updated":
-
-                if event.data.get("data").get("current_item").get("media_type") == "radio":
-                    self._playing_mass_radio = True
-                    try:
-                        self._media_title = event.data.get("data").get("current_item").get("name")
-                    except (ValueError, KeyError):
-                        self._media_title = None
-
-                    try:
-                        self._media_image_url = event.data.get("data").get("current_item").get("image")
-                    except (ValueError, KeyError):
-                        self._media_image_url = None
-
-                    self._media_artist = None
-                    self._duration = 0
-                    self._playhead_position = 0
-                else:
-                    self._playing_mass_radio = False
-                    try:
-                        self._media_title = event.data.get("data").get("current_item").get("media_item").get("name") 
-                        version = event.data.get("data").get("current_item").get("media_item").get("version")
-                        if version != "":
-                            self._media_title = self._media_title + " (" + version + ")"
-                    except (ValueError, KeyError):
-                        try:
-                            self._media_title = event.data.get("data").get("current_item").get("name")
-                        except (ValueError, KeyError):
-                            self._media_title = None
-
-                    try:
-                        artists = len(event.data.get("data").get("current_item").get("media_item").get("artists"))
-                        cnt = 0
-                        self._media_artist = ""
-                        for artist in event.data.get("data").get("current_item").get("media_item").get("artists"):
-                            self._media_artist = self._media_artist + artist.get("name")
-                            cnt = cnt + 1
-                            if cnt < artists:
-                                self._media_artist = self._media_artist + " / "
-                    except (ValueError, KeyError):
-                        try:
-                            self._media_artist = event.data.get("data").get("current_item").get("media_item").get("album").get("artist").get("name")
-                        except (ValueError, KeyError):
-                            self._media_artist = None
-
-                    try:
-                        self._media_image_url = event.data.get("data").get("current_item").get("image")
-                    except (ValueError, KeyError):
-                        self._media_image_url = None
-                
-                    try:
-                        self._duration = event.data.get("data").get("current_item").get("duration")
-                    except (ValueError, KeyError):
-                        self._duration = 0
-
-            elif event.data.get("type") == "queue_time_updated":
-                if not self._playing_mass_radio:
-                    try:
-                        self._playhead_position = event.data.get("data")
-                    except (ValueError, KeyError):
-                        pass
-
-#                titles = event.data.get("data").get("current_item").get("name").split(' - ')
-#                if len(titles) > 1:
-#                    self._media_artist = titles[0]
-#                    self._media_title = titles[1]
-#                else:
-#                    self._media_title = titles[0]
-
-            #_LOGGER.debug("EVENT for: %s TITLE: %s DUR: %s POS: %s IMAGE: %s", self.entity_id, self._media_title, self._duration, self._playhead_position, self._media_image_url)
 
     async def async_get_local_mediasource_metadata_from_path(self):
         if self._media_source_uri is not None:
@@ -2053,7 +1938,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         #_LOGGER.debug('For: %s stated media_artist: %s', self._name, self._media_artist)
         
     async def async_detect_stream_url_redirection(self, uri):
-        if uri.find('tts_proxy') != -1 or self._announce: # skip redirect check for local TTS streams
+        if uri.find('tts_proxy') != -1: # skip redirect check for local TTS streams
             return uri
         _LOGGER.debug('For: %s detect URI redirect-from:   %s', self._name, uri)
         redirect_detect = True
@@ -2203,7 +2088,7 @@ class LinkPlayDevice(MediaPlayerEntity):
     async def async_set_slave_mode(self, slave_mode):
         """Set current device as slave in a multiroom configuration."""
         self._slave_mode = slave_mode
-        #self.async_schedule_update_ha_state(True)
+        ##await self.async_schedule_update_ha_state(True)
 
     async def async_set_previous_source(self, srcbool):
         """Memorize what was the previous source before entering multiroom."""
@@ -2214,7 +2099,7 @@ class LinkPlayDevice(MediaPlayerEntity):
 
     async def async_restore_previous_source(self):
         """Set to the last known source after exiting multiroom."""
-        await self.async_select_source(self._multiroom_prevsrc)
+        self.select_source(self._multiroom_prevsrc)
         self._multiroom_prevsrc = None
 
     async def async_set_media_title(self, title):
@@ -2256,7 +2141,7 @@ class LinkPlayDevice(MediaPlayerEntity):
     async def async_set_source(self, source):
         """Set the source property."""
         self._source = source
-        #self.async_schedule_update_ha_state(True)
+        ##await self.async_schedule_update_ha_state(True)
 
     async def async_set_sound_mode(self, mode):
         """Set the sound mode property."""
@@ -2274,6 +2159,10 @@ class LinkPlayDevice(MediaPlayerEntity):
         """Set the self features property."""
         self._features = features
 
+    async def async_set_wait_for_mcu(self, wait_for_mcu):
+        """Set the wait for mcu processing duration property."""
+        self._wait_for_mcu = wait_for_mcu
+
     async def async_set_unav_throttle(self, unav_throttle):
         """Set update throttle property."""
         self._unav_throttle = unav_throttle
@@ -2283,7 +2172,9 @@ class LinkPlayDevice(MediaPlayerEntity):
         if self._preset_key != None and preset != None:
             if not self._slave_mode:
                 if int(preset) > 0 and int(preset) <= self._preset_key:
-                    value = await self.async_call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
+                    value = await self.call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
+                    # self._wait_for_mcu = 2
+                    # await self.async_schedule_update_ha_state(True)
                     if value != "OK":
                         _LOGGER.warning("Failed to recall preset %s. " "Device: %s, Got response: %s", self.entity_id, preset, value)
                 else:
@@ -2306,6 +2197,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         if self.entity_id not in self._multiroom_group:
             self._multiroom_group.append(self.entity_id)
             self._is_master = True
+            self._wait_for_mcu = 2
 
         for slave in slaves:
             if slave._is_master:
@@ -2325,7 +2217,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                     _LOGGER.debug("Multiroom: Join in multiroom mode. Master: %s, Slave: %s", self.entity_id, slave.entity_id)
                     cmd = 'ConnectMasterAp:JoinGroupMaster:eth{0}:wifi0.0.0.0'.format(self._host)
 
-                value = await slave.async_call_linkplay_httpapi(cmd, None)
+                value = await slave.call_linkplay_httpapi(cmd, None)
                 
                 _LOGGER.debug("Multiroom: command result: %s Master: %s, Slave: %s", value, self.entity_id, slave.entity_id)
                 if value == "OK":
@@ -2365,7 +2257,7 @@ class LinkPlayDevice(MediaPlayerEntity):
             return
 
         cmd = "multiroom:Ungroup"
-        value = await self.async_call_linkplay_httpapi(cmd, None)
+        value = await self.call_linkplay_httpapi(cmd, None)
         if value == "OK":
             self._is_master = False
             for slave_id in self._multiroom_group:
@@ -2400,16 +2292,17 @@ class LinkPlayDevice(MediaPlayerEntity):
                 for device in self.hass.data[DOMAIN].entities:
                     if device._is_master:    ## TODO!!!
                         cmd = "multiroom:SlaveKickout:{0}".format(self._slave_ip)
-                        value = await self._master.async_call_linkplay_httpapi(cmd, None)
+                        value = await self._master.call_linkplay_httpapi(cmd, None)
                         self._master._position_updated_at = utcnow()
 
         else:
             cmd = "multiroom:Ungroup"
-            value = await self.async_call_linkplay_httpapi(cmd, None)
+            value = await self.call_linkplay_httpapi(cmd, None)
 
         if value == "OK":
             if self._master is not None:
                 await self._master.async_remove_from_group(self)
+                self._master._wait_for_mcu = 1
                 # await self._master.async_schedule_update_ha_state(True)
             self._multiroom_unjoinat = utcnow()
             self._master = None
@@ -2443,20 +2336,20 @@ class LinkPlayDevice(MediaPlayerEntity):
     async def async_execute_command(self, command, notif):
         """Execute desired command against the player using factory API."""
         if command.startswith('MCU'):
-            value = await self.async_call_linkplay_tcpuart(command)
+            value = await self.call_linkplay_tcpuart(command)
         elif command == 'Reboot':
-            value = await self.async_call_linkplay_httpapi("getStatus:ip:;reboot;", None)
+            value = await self.call_linkplay_httpapi("getStatus:ip:;reboot;", None)
         elif command == 'PromptEnable':
-            value = await self.async_call_linkplay_httpapi("PromptEnable", None)
+            value = await self.call_linkplay_httpapi("PromptEnable", None)
         elif command == 'PromptDisable':
-            value = await self.async_call_linkplay_httpapi("PromptDisable", None)
+            value = await self.call_linkplay_httpapi("PromptDisable", None)
         elif command == 'RouterMultiroomEnable':
-            value = await self.async_call_linkplay_httpapi("setMultiroomLogic:1", None)
+            value = await self.call_linkplay_httpapi("setMultiroomLogic:1", None)
         elif command == 'SetRandomWifiKey':
             from random import choice
             from string import ascii_letters
             newkey = (''.join(choice(ascii_letters) for i in range(16)))
-            value = await self.async_call_linkplay_httpapi("setNetwork:1:{0}".format(newkey), None)
+            value = await self.call_linkplay_httpapi("setNetwork:1:{0}".format(newkey), None)
             if value == 'OK':
                 value = value + ", key: " + newkey
             else:
@@ -2464,7 +2357,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         elif command.startswith('SetApSSIDName:'):
             ssidnam = command.replace('SetApSSIDName:', '').strip()
             if ssidnam != '':
-                value = await self.async_call_linkplay_httpapi("setSSID:{0}".format(ssidnam), None)
+                value = await self.call_linkplay_httpapi("setSSID:{0}".format(ssidnam), None)
                 if value == 'OK':
                     value = value + ", SoftAP SSID set to: " + ssidnam
             else:
@@ -2472,7 +2365,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         elif command.startswith('WriteDeviceNameToUnit:'):
             devnam = command.replace('WriteDeviceNameToUnit:', '').strip()
             if devnam != '':
-                value = await self.async_call_linkplay_httpapi("setDeviceName:{0}".format(devnam), None)
+                value = await self.call_linkplay_httpapi("setDeviceName:{0}".format(devnam), None)
                 if value == 'OK':
                     self._name = devnam
                     value = value + ", name set to: " + self._name
@@ -2481,7 +2374,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         elif command == 'TimeSync':
             import time
             tme = time.strftime('%Y%m%d%H%M%S')
-            value = await self.async_call_linkplay_httpapi("timeSync:{0}".format(tme), None)
+            value = await self.call_linkplay_httpapi("timeSync:{0}".format(tme), None)
             if value == 'OK':
                 value = value + ", time: " + tme
         elif command == 'Rescan':
@@ -2523,7 +2416,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                 if self._state in [STATE_PLAYING, STATE_PAUSED] and self._playing_mediabrowser:
                     self._snap_seek = True
 
-            _LOGGER.debug("For %s SNAPSHOT, source: %s, volume: %s, uri: %s, seek: %s, pos: %s", self.name, self._source, self._snap_volume, self._media_uri_final, self._snap_seek, self._playhead_position)
+            _LOGGER.debug("Player %s snaphsot source: %s, volume: %s, uri: %s, seek: %s, pos: %s", self.name, self._source, self._snap_volume, self._media_uri_final, self._snap_seek, self._playhead_position)
 
             if self._source == "Network":
                 self._snap_uri = self._media_uri_final
@@ -2532,25 +2425,21 @@ class LinkPlayDevice(MediaPlayerEntity):
             if self._playing_spotify:
                 if not switchinput:
                     await self.async_preset_snap_via_upnp(str(self._preset_key))
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:stop", None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:stop", None)
                 else:
                     self._snap_spotify_volumeonly = True
                 self._snap_spotify = True
                 self._snap_volume = int(self._volume)
+                # await asyncio.sleep(0.2)
                 return
-
-            elif self._playing_mass:
-                await self.hass.services.async_call("mass","queue_command", service_data = {"entity_id": self.entity_id, "command": "snapshot_create"})
-                self._snap_mass = True
-                self._snap_volume = int(self._volume)
 
             elif self._state == STATE_IDLE:
                 self._snap_volume = int(self._volume)
 
             elif switchinput and not self._playing_stream:
-                value = await self.async_call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
+                value = await self.call_linkplay_httpapi("setPlayerCmd:switchmode:wifi", None)
                 await asyncio.sleep(0.2)
-                await self.async_call_linkplay_httpapi("setPlayerCmd:stop", None)
+                await self.call_linkplay_httpapi("setPlayerCmd:stop", None)
                 if value == "OK":
                     await asyncio.sleep(2)  # have to wait for the sound fade-in of the unit when physical source is changed, otherwise volume value will be incorrect
                     await self.async_get_status()
@@ -2566,11 +2455,9 @@ class LinkPlayDevice(MediaPlayerEntity):
                     self._snap_volume = 0
             else:
                 self._snap_volume = int(self._volume)
-                if self._playing_stream:
-                    if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS):
-                        await self.async_call_linkplay_httpapi("setPlayerCmd:pause", None)
-                    else:
-                        await self.async_call_linkplay_httpapi("setPlayerCmd:stop", None)
+                if self._fwvercheck(self._fw_ver) >= self._fwvercheck(FW_SLOW_STREAMS):
+                    await self.call_linkplay_httpapi("setPlayerCmd:pause", None)
+                await self.call_linkplay_httpapi("setPlayerCmd:stop", None)
         else:
             return
             #await self._master.async_snapshot(switchinput)
@@ -2582,32 +2469,30 @@ class LinkPlayDevice(MediaPlayerEntity):
             return
 
         if not self._slave_mode:
-            _LOGGER.debug("For %s RESTORE, current source: %s, restoring volume: %s, source: %s uri: %s, seek: %s, pos: %s", self.name, self._source, self._snap_volume, self._snap_source, self._snap_uri, self._snap_seek, self._snap_playhead_position)
+            _LOGGER.debug("Player %s current source: %s, restoring volume: %s, source: %s uri: %s, seek: %s, pos: %s", self.name, self._source, self._snap_volume, self._snap_source, self._snap_uri, self._snap_seek, self._snap_playhead_position)
             if self._snap_state != STATE_UNKNOWN:
                 self._state = self._snap_state
 
+            if self._snap_volume != 0:
+                await self.call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(self._snap_volume)), None)
+                self._snap_volume = 0
+
+                # await asyncio.sleep(.6)
+
             self._playing_tts = False
-            self._announce = False
             self._playhead_position = self._snap_playhead_position
 
             if self._snap_spotify:
                 self._snap_spotify = False
                 if not self._snap_spotify_volumeonly:
-                    await self.async_call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(self._preset_key)), None)
+                    await self.call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(self._preset_key)), None)
                 self._snapshot_active = False
                 self._snap_spotify_volumeonly = False
                 # await self.async_schedule_update_ha_state(True)
 
-            elif self._snap_mass:
-                self._snap_mass = False
-                self._snapshot_active = False
-                await self.hass.services.async_call("mass","queue_command", service_data = {"entity_id": self.entity_id, "command": "snapshot_restore"})
-
             elif self._snap_source != "Network":
                 self._snapshot_active = False
                 await self.async_select_source(self._snap_source)
-                if self._snap_uri is None:
-                    await asyncio.sleep(.6)
                 self._snap_source = None
             
             elif self._snap_uri is not None:
@@ -2620,15 +2505,11 @@ class LinkPlayDevice(MediaPlayerEntity):
                 self._snapshot_active = False
                 self._snap_uri = None
 
-            if self._snap_volume != 0:
-                await self.async_call_linkplay_httpapi("setPlayerCmd:vol:{0}".format(str(self._snap_volume)), None)
-                self._snap_volume = 0
-
             if self._snap_state in [STATE_PLAYING, STATE_PAUSED]:
                 await asyncio.sleep(0.5)
                 if self._snap_seek and self._snap_playhead_position > 0:
                     _LOGGER.debug("Seekin'")
-                    await self.async_call_linkplay_httpapi("setPlayerCmd:seek:{0}".format(str(self._snap_playhead_position)), None)
+                    await self.call_linkplay_httpapi("setPlayerCmd:seek:{0}".format(str(self._snap_playhead_position)), None)
                     if self._snap_state == STATE_PAUSED:
                         await self.async_media_pause()
 
@@ -2657,13 +2538,14 @@ class LinkPlayDevice(MediaPlayerEntity):
             if not index > 0:
                 return
 
-            value = await self.async_call_linkplay_httpapi("setPlayerCmd:playLocalList:{0}".format(index), None)
+            value = await self.call_linkplay_httpapi("setPlayerCmd:playLocalList:{0}".format(index), None)
             if value != "OK":
                 _LOGGER.warning("Failed to play media track by name. Device: %s, Got response: %s", self.entity_id, value)
                 return False
             else:
                 self._state = STATE_PLAYING
                 self._playing_tts = False
+                #self._wait_for_mcu = 0.4
                 self._media_title = None
                 self._media_artist = None
                 self._media_album = None
