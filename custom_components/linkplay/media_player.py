@@ -162,7 +162,8 @@ SOURCES = {'bluetooth': 'Bluetooth',
            'RCA': 'RCA', 
            'XLR': 'XLR', 
            'FM': 'FM', 
-           'cd': 'CD'}
+           'cd': 'CD',
+           'PCUSB': 'USB DAC'}
 
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
@@ -186,7 +187,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '48': 'XLR',
                '49': 'HDMI',
                '50': 'cd',
-               '51': 'Soundcard',
+               '51': 'USB DAC',
                '52': 'TFcard',
                '60': 'Talk',
                '99': 'Idle'}
@@ -409,7 +410,7 @@ class LinkPlayDevice(MediaPlayerEntity):
                 response = await websession.get(url)
 
         except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "Failed communicating with LinkPlayDevice (httpapi) '%s': %s", self._name, type(error)
             )
             return False
@@ -1744,7 +1745,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if coverart_url.find('2a96cbd8b46e442fc41c2b86b821562f') != -1:
                 # don't show the sheriff star empty cover https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png
-                _LOGGER.debug("LastFM ratelimited")
                 self._media_image_url = None
             else:
                 self._media_image_url = coverart_url
@@ -2337,8 +2337,6 @@ class LinkPlayDevice(MediaPlayerEntity):
         """Execute desired command against the player using factory API."""
         if command.startswith('MCU'):
             value = await self.call_linkplay_tcpuart(command)
-        elif command == 'Reboot':
-            value = await self.call_linkplay_httpapi("getStatus:ip:;reboot;", None)
         elif command == 'PromptEnable':
             value = await self.call_linkplay_httpapi("PromptEnable", None)
         elif command == 'PromptDisable':
@@ -2384,7 +2382,11 @@ class LinkPlayDevice(MediaPlayerEntity):
             value = "Scheduled to Rescan"
         elif command == 'Update':
             # await self.async_schedule_update_ha_state(True)
-            value = "Scheduled to Update"
+            value = "Scheduled to Update state"
+        elif command == 'reboot':
+            value = await self.call_linkplay_httpapi("reboot;", None)
+        elif command == 'restoreToDefault':
+            value = await self.call_linkplay_httpapi("restoreToDefault", None)
         else:
             value = "No such command implemented."
             _LOGGER.warning("Player %s command: %s, result: %s", self.entity_id, command, value)

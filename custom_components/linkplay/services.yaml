@@ -112,9 +112,11 @@ command:
             - Rescan
             - PromptEnable
             - PromptDisable
+            - RouterMultiroomEnable
             - SetRandomWifiKey
             - TimeSync
-            - RouterMultiroomEnable
+            - restoreToDefault
+            - reboot
             - 'WriteDeviceNameToUnit: My Device Name'
             - 'SetApSSIDName: NewWifiName'
     notify:
