@@ -1745,6 +1745,7 @@ class LinkPlayDevice(MediaPlayerEntity):
         else:
             if coverart_url.find('2a96cbd8b46e442fc41c2b86b821562f') != -1:
                 # don't show the sheriff star empty cover https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png
+                _LOGGER.debug("LastFM ratelimited")
                 self._media_image_url = None
             else:
                 self._media_image_url = coverart_url
