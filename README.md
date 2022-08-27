@@ -55,7 +55,7 @@ MIT License
 - Copyright (c) 2019 Niclas Berglind nicjo814
 - Copyright (c) 2019—2020 Andrey "Limych" Khrolenok
 - Copyright (c) 2020 nagyrobi Robert Horvath-Arkosi
-- Copyright (c) 2020 onlyoneme Mariusz Kopacki
+- Copyright (c) 2022 onlyoneme Mariusz Kopacki
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
