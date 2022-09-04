@@ -372,7 +372,7 @@ class WiiMDevice(MediaPlayerEntity):
                                 self._upnp_device = await self._factory.async_create_device(url)
                             except:
                                 _LOGGER.warning(
-                                    "Failed communicating with WiiM (UPnP) '%s': %s", self._name, type(error)
+                                    "Failed communicating with WiiM (UPnP) '%s'", self._name
                                 )
 
                         if self._first_update:
@@ -1116,7 +1116,7 @@ class WiiMDevice(MediaPlayerEntity):
             self._first_update = True
             value = "Scheduled to Rescan"
         elif command == 'reboot':
-            value = await self.call_wiim_httpapi("reboot;", None)
+            value = await self.call_wiim_httpapi("reboot", None)
         else:
             value = "No such command implemented."
             _LOGGER.warning("Player %s command: %s, result: %s", self.entity_id, command, value)
