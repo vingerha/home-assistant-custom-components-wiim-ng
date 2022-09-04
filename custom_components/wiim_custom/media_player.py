@@ -445,10 +445,10 @@ class WiiMDevice(MediaPlayerEntity):
                 self._media_album = None
                 self._media_image_url = None
 
-            if self._player_statdata['mode'] in ['1', '2', '3']:
+            #if self._player_statdata['mode'] in ['1', '2', '3']:
                 #_LOGGER.debug("08 Line Inputs name playing: %s, %s", self.entity_id, self._name)
-                self._state = STATE_PLAYING
-                self._media_title = self._source
+                #self._state = STATE_PLAYING
+                #self._media_title = self._source
 
             if self._playing_connect and self._state == STATE_IDLE:
                 self._source = None
@@ -1137,8 +1137,8 @@ class WiiMDevice(MediaPlayerEntity):
             return
 
         _LOGGER.debug("Update via UPnP for: %s", self.entity_id)
-
-        self._service = self._upnp_device.service('urn:schemas-upnp-org:service:AVTransport:1')
+        if self._service is None:
+            self._service = self._upnp_device.service('urn:schemas-upnp-org:service:AVTransport:1')
         #_LOGGER.debug("GetMediaInfo for: %s, UPNP service:%s", self.entity_id, self._service)
         
         media_info = dict()
