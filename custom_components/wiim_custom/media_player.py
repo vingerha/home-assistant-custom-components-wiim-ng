@@ -592,7 +592,7 @@ class WiiMDevice(MediaPlayerEntity):
             MediaPlayerEntityFeature.STOP | \
             MediaPlayerEntityFeature.VOLUME_MUTE
 
-      if self._fixed_volume == '0':
+        if self._fixed_volume == '0':
             self._features |= MediaPlayerEntityFeature.VOLUME_SET
             self._features |= MediaPlayerEntityFeature.VOLUME_STEP
 
@@ -1192,7 +1192,7 @@ class WiiMDevice(MediaPlayerEntity):
             else:
                 _LOGGER.warning("Wrong preset number %s. Device: %s, has to be integer between 1 and %s", self.entity_id, preset, self._preset_key)
 
-   async def async_volume(self, volume):
+    async def async_volume(self, volume):
         if volume != None:
             if int(volume) >= 0 and int(volume) <= 100:
                 value = await self.call_wiim_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
