@@ -1,43 +1,19 @@
-# WiiM devices
+This is a fork of https://github.com/onlyoneme/home-assistant-custom-components-wiim by @onlyoneme, created to introduce some quality-of-life changes, like modern UI configuration and handle some upcoming deprecations.
 
-This component allows you to integrate control of WiiM Mini and Pro devices into your [Home Assistant](http://www.home-assistant.io) smart home system. Originally developed for LinkPlay devices by @nicjo814, @limych and @nagyrobi.
-
+This component allows you to integrate control of WiiM Mini, Pro, Pro Plus and Amp devices into your [Home Assistant](http://www.home-assistant.io) smart home system. Originally developed for LinkPlay devices by @nicjo814, @limych and @nagyrobi, later forked by @onlyoneme.
 
 ## Installation
-* Copy all files in `custom_components/wiim_custom` to your `<config directory>/custom_components/wiim_custom/` directory.
+* Copy all files in `custom_components/wiim_custom_ng` to your `<config directory>/custom_components/wiim_custom_ng/` directory.
 * Restart Home-Assistant.
-* Add the configuration to your configuration.yaml.
-* Restart Home-Assistant again.
+* In HASS settings search for WiiM and fill in the settings described below
 
-
-### Configuration
-
-It is recommended to create static DHCP leases in your network router to ensure the devices always get the same IP address. Recent models versions allow setting static IP address, if you see that option, use it.
-
-To add WiiM units to your installation, add the following to your `configuration.yaml` file:
-
-```yaml
-# Example configuration.yaml entry
-media_player:
-    - platform: wiim_custom
-      host: 192.168.1.11
-      name: Sound Room1
-
-
-    - platform: wiim_custom
-      host: 192.168.1.12
-      name: Sound Room2
-      uuid: 'FF31F09E82A6BBC1A2CB6D80'
-      volume_step: 10
-```
-
-### Configuration Variables
+### Settings
 
 **host:**  
-  *(string)* *(Required)* The IP address of the WiiM unit.
+  *(string)* *(Required)* The IP address of the WiiM unit. Make sure it gets the same IP via static lease.
 
 **name:**  
-  *(string)* *(Required)* Name that Home Assistant will generate the `entity_id` based on. It is also the base of the friendly name seen in the dashboard, but will be overriden by the device name set in the Android app.
+  *(string)* *(Required)* Name that Home Assistant will generate the `entity_id` based on. It is also the base of the friendly name seen in the dashboard, but will be overriden by the device name set in the smartphone WiiM app.
 
 **uuid:**  
   *(string)* *(Optional)* Hardware UUID of the player. Can be read out from the attibutes of the entity. Set it manually to that value to handle double-added entity cases when Home Assistant starts up without the WiiM device being on the network at that moment.
@@ -45,12 +21,12 @@ media_player:
 **volume_step:**  
   *(integer)* *(Optional)* Step size in percent to change volume when calling `volume_up` or `volume_down` service against the media player. Defaults to `5`, can be a number between `1` and `25`.
 
-
 ## Home Assistant component authors & contributors
     "@nicjo814",
     "@limych",
     "@nagyrobi",
-	"@onlyoneme"
+    "@onlyoneme",
+    "@m-stefanski"
 
 ## Home Assistant component License
 
@@ -60,6 +36,7 @@ MIT License
 - Copyright (c) 2019—2020 Andrey "Limych" Khrolenok
 - Copyright (c) 2020 nagyrobi Robert Horvath-Arkosi
 - Copyright (c) 2022 onlyoneme Mariusz Kopacki
+- Copyright (c) 2025 m-stefanski Marcin Stefański
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,29 +1,42 @@
-"""
-Support for WiiM devices.
-
-For more details about this platform, please refer to the documentation at
-https://github.com/onlyoneme/home-assistant-custom-components-wiim
-"""
 import logging
 import voluptuous as vol
 
 from homeassistant.components.media_player.const import MediaType
-
 from homeassistant.helpers import config_validation as cv
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 
-DOMAIN = 'wiim_custom'
+from .const import *
+from .media_player import WiiMData
 
-SERVICE_CMD = 'command'
-SERVICE_PLAY_URL = 'play_url'
-SERVICE_PRESET = 'preset'
+# List the platforms that your integration supports.
+PLATFORMS = ["media_player"]
 
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the WiiM integration from a config entry."""
+    # Create integration-level data storage if it doesn't exist.
+    hass.data.setdefault(DOMAIN, {})
 
-ATTR_CMD = 'command'
-ATTR_NOTIF = 'notify'
-ATTR_URL = 'url'
-ATTR_PRESET = 'preset'
+    # (Optional) Store a shared instance of your global data object.
+    hass.data[DOMAIN]["data"] = WiiMData()
 
+    # Forward the config entry to the supported platforms.
+    for platform in PLATFORMS:
+        hass.async_create_task(
+            hass.config_entries.async_forward_entry_setup(entry, platform)
+        )
+    return True
 
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unload_ok = all(
+        await hass.config_entries.async_forward_entry_unload(entry, platform)
+        for platform in PLATFORMS
+    )
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+    return unload_ok
 
 CMND_SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,

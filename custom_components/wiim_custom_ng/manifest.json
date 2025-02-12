@@ -1,17 +1,18 @@
 {
-  "domain": "wiim_custom",
+  "domain": "wiim_custom_ng",
   "name": "WiiM",
   "version":"0.3.8",
-  "documentation": "https://github.com/onlyoneme/home-assistant-custom-components-wiim",
-  "issue_tracker": "https://github.com/onlyoneme/home-assistant-custom-components-wiim/issues",
+  "documentation": "https://github.com/m-stefanski/home-assistant-custom-components-wiim-ng",
+  "issue_tracker": "https://github.com/m-stefanski/home-assistant-custom-components-wiim-ng/issues",
   "after_dependencies": ["http", "media_source"],
-  "config_flow": false,
+  "config_flow": true,
   "iot_class": "local_polling",
   "codeowners": [
     "@nicjo814",
     "@limych",
     "@nagyrobi",
-    "@onlyoneme"
+    "@onlyoneme",
+    "@m-stefanski"
   ],
   "requirements": [
     "async-upnp-client>=0.31.2",

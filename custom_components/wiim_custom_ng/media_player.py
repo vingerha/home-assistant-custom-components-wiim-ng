@@ -1,21 +1,9 @@
-"""
-Support for WiiM devices.
-
-For more details about this platform, please refer to the documentation at
-https://github.com/onlyoneme/home-assistant-custom-components-wiim
-"""
-
 import asyncio
 import async_timeout
-import voluptuous as vol
-
-from datetime import timedelta
 import logging
 
-import string
 import aiohttp
 from http import HTTPStatus
-from aiohttp.client_exceptions import ClientError
 
 from async_upnp_client.client_factory import UpnpFactory
 from async_upnp_client.aiohttp import AiohttpRequester
@@ -24,10 +12,10 @@ from lxml import etree as ET
 from homeassistant.util import Throttle
 from homeassistant.util.dt import utcnow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from homeassistant.components.media_player import (
-    PLATFORM_SCHEMA, 
     MediaPlayerEntity,
     MediaPlayerDeviceClass,
     MediaPlayerEntityFeature,	
@@ -56,95 +44,9 @@ from homeassistant.const import (
     STATE_BUFFERING,
 )
 
-
-from . import DOMAIN
+from .const import *
 
 _LOGGER = logging.getLogger(__name__)
-
-ICON_DEFAULT = 'mdi:speaker'
-ICON_PLAYING = 'mdi:speaker-wireless'
-ICON_MUTED = 'mdi:speaker-off'
-ICON_BLUETOOTH = 'mdi:speaker-bluetooth'
-ICON_PUSHSTREAM = 'mdi:cast-audio'
-
-ATTR_FWVER = 'firmware'
-ATTR_DEVMODEL = 'device_model'
-ATTR_PL_TRACKS = 'pl_tracks'
-ATTR_PL_TRCRT = 'pl_track_current'
-ATTR_TRCRT = 'track_current'
-ATTR_STURI = 'stream_uri'
-ATTR_UUID = 'uuid'
-ATTR_DEBUG = 'debug_info'
-ATTR_BITRATE = 'bit_rate'
-ATTR_SAMPLERATE = 'sample_rate'
-ATTR_DEPTH = 'bit_depth'
-ATTR_FIXED_VOL = 'fixed_vol'
-ATTR_SLAVE = 'slave'
-ATTR_MASTER_UUID = 'master_uuid'
-ATTR_ART_URL = 'art_url'
-
-CONF_NAME = 'name'
-CONF_VOLUME_STEP = 'volume_step'
-CONF_UUID = 'uuid'
-
-DEFAULT_VOLUME_STEP = 5
-
-
-DEBUGSTR_ATTR = True
-MAX_VOL = 100
-
-UPNP_TIMEOUT = 2
-API_TIMEOUT = 2
-
-UNA_THROTTLE = timedelta(seconds=20)
-CONNECT_PAUSED_TIMEOUT = timedelta(seconds=300)
-AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
-
-MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
-             'WiiM_Pro_with_gc4a': 'WiiM Pro',
-             'WiiM_Pro_Plus': 'WiiM Pro Plus',
-             'WiiM_AMP': 'WiiM Amp'}
-
-SOURCES = {'line-in': 'Analog', 
-           'optical': 'Toslink',
-           'HDMI': 'HDMI'}
-
-SOURCES_MAP = {'-1': 'Idle', 
-               '0': 'Idle', 
-               '1': 'Airplay', 
-               '2': 'DLNA',
-               '3': 'Amazon',
-               '4': '???',
-               '5': 'Chromecast',
-               '10': 'Network',
-               '20': 'Network',			   
-               '31': 'Spotify',
-               '32': 'TIDAL',
-               '33': 'Roon',
-               '34': 'Squeezelite',
-               '40': 'Analog',
-               '41': 'Bluetooth',
-               '43': 'Toslink',	
-               '49': 'HDMI',			   
-               '99': 'Idle'}
-
-SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_LIVEIN = ['40', '41', '43', '49']
-SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
-
-SOURCES_CONNECT = ['31', '32']
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_NAME): cv.string,
-        vol.Optional(CONF_UUID, default=''): cv.string,
-        vol.Optional(CONF_VOLUME_STEP, default=DEFAULT_VOLUME_STEP): vol.All(int, vol.Range(min=1, max=25)),
-    }
-)
-
-
-
 
 class WiiMData:
     """Storage class for platform global data."""
@@ -152,17 +54,17 @@ class WiiMData:
         """Initialize the data."""
         self.entities = []
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+# async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> bool:
     """Set up the WiiM platform."""
 
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = WiiMData()
 
-    name = config.get(CONF_NAME)
-    host = config.get(CONF_HOST)
-    uuid = config.get(CONF_UUID)
-    volume_step = config.get(CONF_VOLUME_STEP)
-
+    host = entry.data.get(CONF_HOST)
+    name = entry.data.get(CONF_NAME)
+    uuid = entry.data.get(CONF_UUID)
+    volume_step = entry.data.get(CONF_VOLUME_STEP)
 
     state = STATE_IDLE
 
@@ -209,6 +111,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                       hass)
 
     async_add_entities([wiim])
+    return True
 		
 class WiiMDevice(MediaPlayerEntity):
     """WiiM Player Object."""
