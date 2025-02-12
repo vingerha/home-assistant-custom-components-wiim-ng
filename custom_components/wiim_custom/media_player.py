@@ -39,11 +39,8 @@ from homeassistant.components.media_player.browse_media import (
 )
 
 from homeassistant.components.media_player.const import (
-    MEDIA_TYPE_MUSIC,
-    MEDIA_TYPE_URL,
-    REPEAT_MODE_ALL,
-    REPEAT_MODE_OFF,
-    REPEAT_MODE_ONE,
+    MediaType,
+    RepeatMode
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -84,6 +81,7 @@ ATTR_DEPTH = 'bit_depth'
 ATTR_FIXED_VOL = 'fixed_vol'
 ATTR_SLAVE = 'slave'
 ATTR_MASTER_UUID = 'master_uuid'
+ATTR_ART_URL = 'art_url'
 
 CONF_NAME = 'name'
 CONF_VOLUME_STEP = 'volume_step'
@@ -103,29 +101,37 @@ CONNECT_PAUSED_TIMEOUT = timedelta(seconds=300)
 AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
 
 MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
-             'WiiM_Pro_with_gc4a': 'WiiM Pro'}
+             'WiiM_Pro_with_gc4a': 'WiiM Pro',
+             'WiiM_Pro_Plus': 'WiiM Pro Plus',
+             'WiiM_AMP': 'WiiM Amp'}
 
 SOURCES = {'line-in': 'Analog', 
-           'optical': 'Toslink'}
+           'optical': 'Toslink',
+           'HDMI': 'HDMI'}
 
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
+               '4': '???',
                '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
                '31': 'Spotify',
                '32': 'TIDAL',
+               '33': 'Roon',
+               '34': 'Squeezelite',
                '40': 'Analog',
                '41': 'Bluetooth',
-               '43': 'Toslink',			   
+               '43': 'Toslink',	
+               '49': 'HDMI',			   
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_LIVEIN = ['40', '41', '43']
-SOURCES_STREAM = ['1', '2', '3', '5', '10', '20']
+SOURCES_LIVEIN = ['40', '41', '43', '49']
+SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
+
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -219,7 +225,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._fw_ver = '1.0.0'
         self._device_model = 'Unknown'
         requester = AiohttpRequester(UPNP_TIMEOUT)
-        self._factory = UpnpFactory(requester, disable_unknown_out_argument_error=True)
+        self._factory = UpnpFactory(requester)
         self._upnp_device = None
         self._service_transport = None
         self._service_control = None
@@ -242,7 +248,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._connect_paused_at = None
         self._idletime_updated_at = None
         self._shuffle = False
-        self._repeat = REPEAT_MODE_OFF
+        self._repeat = RepeatMode.OFF
         self._media_album = None
         self._media_artist = None
         self._media_prev_artist = None
@@ -479,12 +485,11 @@ class WiiMDevice(MediaPlayerEntity):
             }.get(self._player_statdata['LoopMode'], False)
 
             self._repeat = {
-                0: REPEAT_MODE_ALL,
-                1: REPEAT_MODE_ONE,
-                2: REPEAT_MODE_ALL,
-                5: REPEAT_MODE_ONE,
-            }.get(self._player_statdata['LoopMode'], REPEAT_MODE_OFF)
-
+                0: RepeatMode.ALL,
+                1: RepeatMode.ONE,
+                2: RepeatMode.ALL,
+                5: RepeatMode.ONE,
+            }.get(self._player_statdata['LoopMode'], RepeatMode.OFF)
             
             if self._player_statdata['PlayType'] in SOURCES_IDLE or self._player_statdata['CurrentTransportState'] in ['STOPPED', 'NO_MEDIA_PRESENT']: 
                 if utcnow() >= (self._idletime_updated_at + AUTOIDLE_STATE_TIMEOUT):
@@ -639,8 +644,11 @@ class WiiMDevice(MediaPlayerEntity):
         """Return the list of available input sources."""
         source_list = self._source_list.copy()
 
-        if self._device_model != 'WiiM Pro' and 'optical' in source_list:
+        if self._device_model == 'WiiM Mini' and 'optical' in source_list:
             del source_list['optical']
+
+        if self._device_model != 'WiiM Amp' and 'HDMI' in source_list:
+            del source_list['HDMI']
 
         if len(source_list) > 0:
             return list(source_list.values())
@@ -747,8 +755,8 @@ class WiiMDevice(MediaPlayerEntity):
 
     @property
     def media_content_type(self):
-        """Content type of current playing media. Has to be MEDIA_TYPE_MUSIC in order for Lovelace to show both artist and title."""
-        return MEDIA_TYPE_MUSIC		
+        """Content type of current playing media. Has to be MediaType.MUSIC in order for Lovelace to show both artist and title."""
+        return MediaType.MUSIC		
 
 		
     @property
@@ -791,6 +799,10 @@ class WiiMDevice(MediaPlayerEntity):
 			
         if self._master_uuid:
             attributes[ATTR_MASTER_UUID] = self._master_uuid
+
+        if self._media_image_url:
+            attributes[ATTR_ART_URL] = self._media_image_url
+
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
@@ -975,8 +987,9 @@ class WiiMDevice(MediaPlayerEntity):
 
         self._playing_mediabrowser = False
 
-        if not (media_type in [MEDIA_TYPE_MUSIC, MEDIA_TYPE_URL] or media_source.is_media_source_id(media_id)):
-            _LOGGER.warning("For: %s Invalid media type %s. Only %s and %s is supported", self._name, media_type, MEDIA_TYPE_MUSIC, MEDIA_TYPE_URL)
+        if not (media_type in [MediaType.MUSIC, MediaType.URL] or media_source.is_media_source_id(media_id)):
+            _LOGGER.warning("For: %s Invalid media type %s. Only %s and %s is supported", self._name, media_type, MediaType.MUSIC, MediaType.URL)
+
             await self.async_media_stop()
             return False
             
@@ -1026,15 +1039,14 @@ class WiiMDevice(MediaPlayerEntity):
         media_id_check = media_id.lower()
 
         if media_id_check.startswith('http'):
-            media_type = MEDIA_TYPE_URL
+            media_type = MediaType.URL
 
+        if not media_type in [MediaType.URL]:
+            _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MediaType.URL)
 
-        if not media_type in [MEDIA_TYPE_URL]:
-            _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MEDIA_TYPE_URL)
             await self.async_media_stop()
             self._playing_mediabrowser = False
             return False
-
 
         if self._playing_mediabrowser:
             media_id_final = media_id
@@ -1129,18 +1141,18 @@ class WiiMDevice(MediaPlayerEntity):
         """Change the shuffle mode."""
         self._shuffle = shuffle
         if shuffle:
-            if self._repeat == REPEAT_MODE_OFF:
+            if self._repeat == RepeatMode.OFF:
                 mode = '3'
-            elif self._repeat == REPEAT_MODE_ALL:
+            elif self._repeat == RepeatMode.ALL:
                 mode = '2'
-            elif self._repeat == REPEAT_MODE_ONE:
+            elif self._repeat == RepeatMode.ONE:
                 mode = '3' #'5' is buggy
         else:
-            if self._repeat == REPEAT_MODE_OFF:
+            if self._repeat == RepeatMode.OFF:
                 mode = '4'
-            elif self._repeat == REPEAT_MODE_ALL:
+            elif self._repeat == RepeatMode.ALL:
                 mode = '0'
-            elif self._repeat == REPEAT_MODE_ONE:
+            elif self._repeat == RepeatMode.ONE:
                 mode = '1'
         value = await self.call_wiim_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
         if value != "OK":
@@ -1151,11 +1163,11 @@ class WiiMDevice(MediaPlayerEntity):
         """Change the repeat mode."""
         #_LOGGER.debug("Setting repeat: %s on %s, %s", repeat, self.entity_id, self._name) 
         self._repeat = repeat
-        if repeat == REPEAT_MODE_OFF:
+        if repeat == RepeatMode.OFF:
             mode = '3' if self._shuffle else '4'
-        elif repeat == REPEAT_MODE_ALL:
+        elif repeat == RepeatMode.ALL:
             mode = '2' if self._shuffle else '0'
-        elif repeat == REPEAT_MODE_ONE:
+        elif repeat == RepeatMode.ONE:
             mode = '3' if self._shuffle else '1' #'5' is buggy
         value = await self.call_wiim_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
         if value != "OK":
