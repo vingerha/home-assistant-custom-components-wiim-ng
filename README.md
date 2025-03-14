@@ -5,7 +5,7 @@ This component allows you to integrate control of WiiM Mini, Pro, Pro Plus and A
 ## Installation
 * Copy all files in `custom_components/wiim_custom_ng` to your `<config directory>/custom_components/wiim_custom_ng/` directory.
 * Restart Home-Assistant.
-* In HASS settings search for WiiM and fill in the settings described below
+* In Settings > Devices, add integration for WiiM and fill in the settings described below
 
 ### Settings
 
