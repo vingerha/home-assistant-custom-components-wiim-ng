@@ -1,4 +1,4 @@
-This is a fork of [https://github.com/onlyoneme/home-assistant-custom-components-wiim-ng](https://github.com/m-stefanski/home-assistant-custom-components-wiim-ng), created to introduce some API features.
+This is a fork of [[https://github.com/onlyoneme/home-assistant-custom-components-wiim-ng](https://github.com/m-stefanski/home-assistant-custom-components-wiim-ng)](https://github.com/m-stefanski/home-assistant-custom-components-wiim-ng), created to introduce some API features.
 
 This component allows you to integrate control of WiiM Mini, Pro, Pro Plus and Amp devices into your [Home Assistant](http://www.home-assistant.io) smart home system. Originally developed for LinkPlay devices by @nicjo814, @limych and @nagyrobi, later forked by @onlyoneme.
 
